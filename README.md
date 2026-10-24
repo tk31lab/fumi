@@ -11,7 +11,8 @@ myapp_default   bridge   myapp     cache, db
 
 $ fumi run -n myapp_default
 Started fumi-shizuka-tsuki on network myapp_default (exit the shell to remove it)
-fumi-shizuka-tsuki:/ # nc -zv db 5432
+Mounted /home/me/myapp at /host
+fumi-shizuka-tsuki:/host # nc -zv db 5432
 db (172.18.0.3:5432) open
 ```
 
@@ -40,6 +41,7 @@ fumi run --network <NETWORK> [--image IMAGE] [--shell SHELL] [--name NAME]
 | `-s`, `--shell` | `sh` | 起動するシェル |
 | `--name` | 自動生成 | コンテナ名。ホスト名にも使います |
 
+- 実行したときのカレントディレクトリを、コンテナの `/host` に読み書きできる状態でマウントします（`-v "$PWD:/host"` 相当）。シェルも `/host` から始まるので、手元の SQL ファイルを流したり、ダンプを手元に書き出したりできます。
 - コンテナ名を指定しないと、日本庭園にちなんだ名前（`fumi-<ようす>-<庭にあるもの>`、例：`fumi-oboro-kiri`）を自動で付けます。
 - 起動したコンテナには、ラベル `fumi.managed=true` が付きます。
 - 終了コードは、シェルの終了コードをそのまま返します。
@@ -71,6 +73,8 @@ fish と PowerShell にも対応しています（`fumi completion --help`）。
 ## Docker への接続
 
 `DOCKER_HOST` などの環境変数に従い、未設定なら `/var/run/docker.sock` に接続します。
+`/host` にマウントされるのは Docker デーモンが動いているマシン上のパスなので、`DOCKER_HOST` でリモートのデーモンにつないでいる場合は、手元のディレクトリはマウントされません。
+
 `docker context` の設定は読まないので、Colima や OrbStack などでソケットの場所が違う場合は `DOCKER_HOST` を設定してください。
 
 ```sh

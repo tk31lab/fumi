@@ -15,6 +15,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"golang.org/x/term"
 
@@ -28,6 +29,10 @@ const (
 	// (apk) for adding clients later.
 	DefaultImage = "alpine:3.24"
 	DefaultShell = "sh"
+
+	// HostMountPoint is where the directory fumi was started from is
+	// mounted inside the bastion.
+	HostMountPoint = "/host"
 
 	// maxNameAttempts bounds retries when a generated name is already taken.
 	maxNameAttempts = 5
@@ -43,6 +48,9 @@ type Options struct {
 	Shell   string
 	// Name is the container name; a themed name is generated when empty.
 	Name string
+	// HostDir is an absolute path mounted read-write at HostMountPoint, and
+	// the shell's working directory. Nothing is mounted when empty.
+	HostDir string
 
 	Stdin  *os.File
 	Stdout *os.File
@@ -120,30 +128,41 @@ func create(ctx context.Context, cli *client.Client, opts Options) (id, name str
 		if name == "" {
 			name = namegen.Generate()
 		}
+		cfg := &container.Config{
+			Image:        opts.Image,
+			Cmd:          []string{opts.Shell},
+			Hostname:     name,
+			Env:          promptEnv(opts.Shell, name),
+			Labels:       map[string]string{dockerutil.ManagedLabel: "true"},
+			Tty:          true,
+			OpenStdin:    true,
+			StdinOnce:    true,
+			AttachStdin:  true,
+			AttachStdout: true,
+			AttachStderr: true,
+		}
+		hostCfg := &container.HostConfig{
+			AutoRemove:  true,
+			NetworkMode: container.NetworkMode(opts.Network),
+		}
+		if opts.HostDir != "" {
+			// A structured mount, unlike a "src:dst" bind string, needs no
+			// parsing and so copes with Windows paths such as C:\work.
+			hostCfg.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: opts.HostDir, Target: HostMountPoint}}
+			cfg.WorkingDir = HostMountPoint
+		}
 		res, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-			Name: name,
-			Config: &container.Config{
-				Image:        opts.Image,
-				Cmd:          []string{opts.Shell},
-				Hostname:     name,
-				Env:          promptEnv(opts.Shell, name),
-				Labels:       map[string]string{dockerutil.ManagedLabel: "true"},
-				Tty:          true,
-				OpenStdin:    true,
-				StdinOnce:    true,
-				AttachStdin:  true,
-				AttachStdout: true,
-				AttachStderr: true,
-			},
-			HostConfig: &container.HostConfig{
-				AutoRemove:  true,
-				NetworkMode: container.NetworkMode(opts.Network),
-			},
+			Name:       name,
+			Config:     cfg,
+			HostConfig: hostCfg,
 		})
 		if err == nil {
 			return res.ID, name, nil
 		}
 		if !cerrdefs.IsConflict(err) {
+			if opts.HostDir != "" && strings.Contains(err.Error(), "bind source path does not exist") {
+				return "", "", fmt.Errorf("cannot mount %s: it does not exist on the Docker host (is DOCKER_HOST a remote daemon?)", opts.HostDir)
+			}
 			return "", "", fmt.Errorf("create container: %w", err)
 		}
 		if opts.Name != "" {
@@ -194,6 +213,9 @@ func attachAndStart(ctx context.Context, cli *client.Client, id, name string, op
 	}
 
 	fmt.Fprintf(opts.Stderr, "Started %s on network %s (exit the shell to remove it)\n", name, opts.Network)
+	if opts.HostDir != "" {
+		fmt.Fprintf(opts.Stderr, "Mounted %s at %s\n", opts.HostDir, HostMountPoint)
+	}
 
 	stdinFd := int(opts.Stdin.Fd())
 	oldState, err := term.MakeRaw(stdinFd)

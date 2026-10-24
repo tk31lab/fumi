@@ -19,8 +19,12 @@ func Connect(ctx context.Context) (*client.Client, error) {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 	if _, err := cli.Ping(ctx, client.PingOptions{NegotiateAPIVersion: true}); err != nil {
+		host := cli.DaemonHost()
 		cli.Close()
-		return nil, fmt.Errorf("cannot connect to the Docker daemon at %s (is it running?): %w", cli.DaemonHost(), err)
+		if client.IsErrConnectionFailed(err) {
+			return nil, fmt.Errorf("cannot connect to the Docker daemon at %s (is it running?)", host)
+		}
+		return nil, fmt.Errorf("connect to the Docker daemon at %s: %w", host, err)
 	}
 	return cli, nil
 }

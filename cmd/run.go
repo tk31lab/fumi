@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,10 @@ func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run --network NETWORK",
 		Short: "Start a bastion container on a network and open a shell",
+		Long: `Start a bastion container on a network and open a shell in it.
+
+The current directory is mounted read-write at /host, and the shell starts
+there. The container is removed when the shell exits.`,
 		Example: `  fumi run --network myapp_default
   fumi run -n myapp_default --image debian:stable-slim --shell bash
   fumi run -n myapp_default --name my-bastion`,
@@ -26,6 +31,10 @@ func newRunCmd() *cobra.Command {
 				return err
 			}
 			defer cli.Close()
+
+			if opts.HostDir, err = os.Getwd(); err != nil {
+				return fmt.Errorf("get current directory: %w", err)
+			}
 
 			code, err := bastion.Run(cmd.Context(), cli, opts)
 			if err != nil {
