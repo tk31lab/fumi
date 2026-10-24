@@ -19,7 +19,7 @@ func newRunCmd() *cobra.Command {
 		Short: "Start a bastion container on a network and open a shell",
 		Long: `Start a bastion container on a network and open a shell in it.
 
-The current directory is mounted read-write at /host, and the shell starts
+The current directory is mounted read-write at /work, and the shell starts
 there. The container is removed when the shell exits.`,
 		Example: `  fumi run --network myapp_default
   fumi run -n myapp_default --image debian:stable-slim --shell bash

@@ -30,9 +30,9 @@ const (
 	DefaultImage = "alpine:3.24"
 	DefaultShell = "sh"
 
-	// HostMountPoint is where the directory fumi was started from is
+	// WorkMountPoint is where the directory fumi was started from is
 	// mounted inside the bastion.
-	HostMountPoint = "/host"
+	WorkMountPoint = "/work"
 
 	// maxNameAttempts bounds retries when a generated name is already taken.
 	maxNameAttempts = 5
@@ -48,7 +48,7 @@ type Options struct {
 	Shell   string
 	// Name is the container name; a themed name is generated when empty.
 	Name string
-	// HostDir is an absolute path mounted read-write at HostMountPoint, and
+	// HostDir is an absolute path mounted read-write at WorkMountPoint, and
 	// the shell's working directory. Nothing is mounted when empty.
 	HostDir string
 
@@ -148,8 +148,8 @@ func create(ctx context.Context, cli *client.Client, opts Options) (id, name str
 		if opts.HostDir != "" {
 			// A structured mount, unlike a "src:dst" bind string, needs no
 			// parsing and so copes with Windows paths such as C:\work.
-			hostCfg.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: opts.HostDir, Target: HostMountPoint}}
-			cfg.WorkingDir = HostMountPoint
+			hostCfg.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: opts.HostDir, Target: WorkMountPoint}}
+			cfg.WorkingDir = WorkMountPoint
 		}
 		res, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 			Name:       name,
@@ -214,7 +214,7 @@ func attachAndStart(ctx context.Context, cli *client.Client, id, name string, op
 
 	fmt.Fprintf(opts.Stderr, "Started %s on network %s (exit the shell to remove it)\n", name, opts.Network)
 	if opts.HostDir != "" {
-		fmt.Fprintf(opts.Stderr, "Mounted %s at %s\n", opts.HostDir, HostMountPoint)
+		fmt.Fprintf(opts.Stderr, "Mounted %s at %s\n", opts.HostDir, WorkMountPoint)
 	}
 
 	stdinFd := int(opts.Stdin.Fd())
