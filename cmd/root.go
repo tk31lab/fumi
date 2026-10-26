@@ -26,7 +26,7 @@ such as a database started by Docker Compose.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newRunCmd(), newNetworksCmd())
+	root.AddCommand(newRunCmd(), newForwardCmd(), newNetworksCmd())
 	return root
 }
 

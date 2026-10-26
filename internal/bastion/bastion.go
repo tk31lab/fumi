@@ -9,18 +9,15 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"syscall"
 
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"golang.org/x/term"
 
 	"github.com/tk31lab/fumi/internal/dockerutil"
-	"github.com/tk31lab/fumi/internal/namegen"
 	"github.com/tk31lab/fumi/internal/network"
 )
 
@@ -33,13 +30,7 @@ const (
 	// WorkMountPoint is where the directory fumi was started from is
 	// mounted inside the bastion.
 	WorkMountPoint = "/work"
-
-	// maxNameAttempts bounds retries when a generated name is already taken.
-	maxNameAttempts = 5
 )
-
-// validName is the container name rule enforced by the Docker daemon.
-var validName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
 // Options configures a bastion container.
 type Options struct {
@@ -60,118 +51,58 @@ type Options struct {
 // Run starts the bastion, attaches the terminal until the shell exits and
 // returns the shell's exit code. The container is removed afterwards.
 func Run(ctx context.Context, cli *client.Client, opts Options) (int, error) {
-	if opts.Name != "" && !validName.MatchString(opts.Name) {
-		return 0, fmt.Errorf("invalid container name %q: only [a-zA-Z0-9][a-zA-Z0-9_.-]+ is allowed", opts.Name)
+	if opts.Name != "" {
+		if err := dockerutil.ValidateName(opts.Name); err != nil {
+			return 0, err
+		}
 	}
 	if !term.IsTerminal(int(opts.Stdin.Fd())) || !term.IsTerminal(int(opts.Stdout.Fd())) {
 		return 0, errors.New("run needs an interactive terminal (stdin and stdout must be a TTY)")
 	}
-	if err := checkNetwork(ctx, cli, opts.Network); err != nil {
+	if err := network.Check(ctx, cli, opts.Network); err != nil {
 		return 0, err
 	}
-	if err := ensureImage(ctx, cli, opts.Image, opts.Stderr); err != nil {
+	if err := dockerutil.EnsureImage(ctx, cli, opts.Image, opts.Stderr); err != nil {
 		return 0, err
 	}
 
-	id, name, err := create(ctx, cli, opts)
+	id, name, err := dockerutil.CreateContainer(ctx, cli, opts.Name, func(name string) client.ContainerCreateOptions {
+		return createOptions(name, opts)
+	})
 	if err != nil {
+		if opts.HostDir != "" && strings.Contains(err.Error(), "bind source path does not exist") {
+			return 0, fmt.Errorf("cannot mount %s: it does not exist on the Docker host (is DOCKER_HOST a remote daemon?)", opts.HostDir)
+		}
 		return 0, err
 	}
 	return attachAndStart(ctx, cli, id, name, opts)
 }
 
-func checkNetwork(ctx context.Context, cli *client.Client, name string) error {
-	if name == "host" || name == "none" {
-		return fmt.Errorf("network %q cannot be used: a bastion must join a bridge or overlay network", name)
+func createOptions(name string, opts Options) client.ContainerCreateOptions {
+	cfg := &container.Config{
+		Image:        opts.Image,
+		Cmd:          []string{opts.Shell},
+		Hostname:     name,
+		Env:          promptEnv(opts.Shell, name),
+		Labels:       dockerutil.Labels(dockerutil.KindShell),
+		Tty:          true,
+		OpenStdin:    true,
+		StdinOnce:    true,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
 	}
-	_, err := cli.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
-	if err == nil {
-		return nil
+	hostCfg := &container.HostConfig{
+		AutoRemove:  true,
+		NetworkMode: container.NetworkMode(opts.Network),
 	}
-	if !cerrdefs.IsNotFound(err) {
-		return fmt.Errorf("inspect network %q: %w", name, err)
+	if opts.HostDir != "" {
+		// A structured mount, unlike a "src:dst" bind string, needs no
+		// parsing and so copes with Windows paths such as C:\work.
+		hostCfg.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: opts.HostDir, Target: WorkMountPoint}}
+		cfg.WorkingDir = WorkMountPoint
 	}
-	msg := fmt.Sprintf("network %q not found", name)
-	if names, err := network.Names(ctx, cli, false); err == nil && len(names) > 0 {
-		msg += "\navailable networks:\n  " + strings.Join(names, "\n  ")
-	} else {
-		msg += " (run `fumi networks --all` to see every network)"
-	}
-	return errors.New(msg)
-}
-
-func ensureImage(ctx context.Context, cli *client.Client, image string, progress io.Writer) error {
-	_, err := cli.ImageInspect(ctx, image)
-	if err == nil {
-		return nil
-	}
-	if !cerrdefs.IsNotFound(err) {
-		return fmt.Errorf("inspect image %q: %w", image, err)
-	}
-	fmt.Fprintf(progress, "Pulling %s ...\n", image)
-	resp, err := cli.ImagePull(ctx, image, client.ImagePullOptions{})
-	if err != nil {
-		return fmt.Errorf("pull image %q: %w", image, err)
-	}
-	defer resp.Close()
-	if err := resp.Wait(ctx); err != nil {
-		return fmt.Errorf("pull image %q: %w", image, err)
-	}
-	return nil
-}
-
-// create creates the container, generating a fresh name on conflict when
-// the user did not choose one.
-func create(ctx context.Context, cli *client.Client, opts Options) (id, name string, err error) {
-	for attempt := 1; ; attempt++ {
-		name = opts.Name
-		if name == "" {
-			name = namegen.Generate()
-		}
-		cfg := &container.Config{
-			Image:        opts.Image,
-			Cmd:          []string{opts.Shell},
-			Hostname:     name,
-			Env:          promptEnv(opts.Shell, name),
-			Labels:       map[string]string{dockerutil.ManagedLabel: "true"},
-			Tty:          true,
-			OpenStdin:    true,
-			StdinOnce:    true,
-			AttachStdin:  true,
-			AttachStdout: true,
-			AttachStderr: true,
-		}
-		hostCfg := &container.HostConfig{
-			AutoRemove:  true,
-			NetworkMode: container.NetworkMode(opts.Network),
-		}
-		if opts.HostDir != "" {
-			// A structured mount, unlike a "src:dst" bind string, needs no
-			// parsing and so copes with Windows paths such as C:\work.
-			hostCfg.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: opts.HostDir, Target: WorkMountPoint}}
-			cfg.WorkingDir = WorkMountPoint
-		}
-		res, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-			Name:       name,
-			Config:     cfg,
-			HostConfig: hostCfg,
-		})
-		if err == nil {
-			return res.ID, name, nil
-		}
-		if !cerrdefs.IsConflict(err) {
-			if opts.HostDir != "" && strings.Contains(err.Error(), "bind source path does not exist") {
-				return "", "", fmt.Errorf("cannot mount %s: it does not exist on the Docker host (is DOCKER_HOST a remote daemon?)", opts.HostDir)
-			}
-			return "", "", fmt.Errorf("create container: %w", err)
-		}
-		if opts.Name != "" {
-			return "", "", fmt.Errorf("container name %q is already in use", name)
-		}
-		if attempt == maxNameAttempts {
-			return "", "", fmt.Errorf("could not find a free container name after %d attempts; pass --name", attempt)
-		}
-	}
+	return client.ContainerCreateOptions{Config: cfg, HostConfig: hostCfg}
 }
 
 // promptEnv shows the container name in the prompt. Only shells that
@@ -185,10 +116,7 @@ func promptEnv(shell, name string) []string {
 }
 
 func attachAndStart(ctx context.Context, cli *client.Client, id, name string, opts Options) (int, error) {
-	// Removal must not depend on ctx, which may already be cancelled.
-	forceRemove := func() {
-		_, _ = cli.ContainerRemove(context.WithoutCancel(ctx), id, client.ContainerRemoveOptions{Force: true})
-	}
+	forceRemove := func() { dockerutil.ForceRemove(ctx, cli, id) }
 
 	// Attach before start so that the first prompt is not lost.
 	att, err := cli.ContainerAttach(ctx, id, client.ContainerAttachOptions{
