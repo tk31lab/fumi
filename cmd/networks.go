@@ -21,7 +21,7 @@ func newNetworksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "networks",
 		Aliases: []string{"net"},
-		Short:   "List networks a bastion can join",
+		Short:   "List networks fumi containers can join",
 		Long: `List Docker networks together with their Compose project and the running
 containers attached to them (Compose service names when available).
 

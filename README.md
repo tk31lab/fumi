@@ -1,6 +1,6 @@
 # fumi
 
-`fumi`（踏み）は、Docker ネットワーク上に使い捨ての踏み台コンテナを立てて、そのシェルに入るための CLI です。
+`fumi`（踏み）は、Docker ネットワーク上に使い捨ての踏み台コンテナを立てて、そのシェルに入ったり、中のサービスを手元のポートに転送したりするための CLI です。
 
 Docker Compose で起動した DB のように、ホストにポートを公開していないサービスへ、同じネットワークの中から接続できます。
 
@@ -46,6 +46,23 @@ fumi run --network <NETWORK> [--image IMAGE] [--shell SHELL] [--name NAME]
 - 起動したコンテナには、ラベル `fumi.managed=true` が付きます。
 - 終了コードは、シェルの終了コードをそのまま返します。
 - 対話的に使う前提なので、標準入力と標準出力が端末である必要があります。
+
+### `fumi forward` — 手元のポートをネットワーク内のサービスに転送する
+
+```sh
+fumi forward --network <NETWORK> [LOCAL_PORT:]HOST:PORT [--name NAME]
+```
+
+```console
+$ fumi forward -n myapp_default 8090:web:80
+Forwarding 127.0.0.1:8090 -> web:80 on myapp_default via fumi-furui-ume (Ctrl+C to stop)
+```
+
+- ネットワークに socat のコンテナ（`alpine/socat:1.8.1.3`）を立てて、`127.0.0.1:<LOCAL_PORT>` への接続を `HOST:PORT` に中継します。転送先のサービスはポートを公開していなくて構いません。手元の GUI クライアントやブラウザからつなぐときに使います。
+- `LOCAL_PORT` を省略すると、転送先と同じ番号を使います（`db:5432` なら手元も 5432）。
+- セキュリティのため、ポートは `127.0.0.1` にだけ公開します。ほかのマシンからは接続できません。
+- Ctrl+C で止めると、コンテナは削除されます。
+- `HOST` には、そのネットワークにいるコンテナが答える名前（Compose のサービス名、コンテナ名、エイリアス）を指定します。見つからない場合は、使える名前を表示してエラーにします。IP アドレスやドットを含む名前は、ネットワーク外の宛先として確認せずに通します。
 
 ### `fumi networks` — ネットワーク一覧（エイリアス：`net`）
 
