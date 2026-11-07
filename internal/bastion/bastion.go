@@ -30,6 +30,10 @@ const (
 	// WorkMountPoint is where the directory fumi was started from is
 	// mounted inside the bastion.
 	WorkMountPoint = "/work"
+
+	// killedStatus is the exit status of a container stopped with SIGKILL,
+	// as `docker rm -f` and `fumi rm` do.
+	killedStatus = 137
 )
 
 // Options configures a bastion container.
@@ -193,6 +197,10 @@ func attachAndStart(ctx context.Context, cli *client.Client, id, name string, op
 	case res := <-wait.Result:
 		if res.Error != nil {
 			return 0, fmt.Errorf("wait for container: %s", res.Error.Message)
+		}
+		if res.StatusCode == killedStatus {
+			// The terminal is still raw here, hence \r\n.
+			fmt.Fprintf(opts.Stderr, "\r\n%s was stopped from outside (e.g. by fumi rm)\r\n", name)
 		}
 		return int(res.StatusCode), nil
 	case err := <-wait.Error:

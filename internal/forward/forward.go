@@ -35,6 +35,10 @@ const (
 
 	// SpecLabel records the forward on the container, e.g. for listing.
 	SpecLabel = "fumi.forward"
+
+	// killedStatus is the exit status of a container stopped with SIGKILL,
+	// as `docker rm -f` and `fumi rm` do.
+	killedStatus = 137
 )
 
 // Options configures a forward.
@@ -173,6 +177,9 @@ func attachAndStart(ctx context.Context, cli *client.Client, id, name string, op
 	case res := <-wait.Result:
 		if res.Error != nil {
 			return fmt.Errorf("socat stopped: %s", res.Error.Message)
+		}
+		if res.StatusCode == killedStatus {
+			return fmt.Errorf("%s was stopped from outside (e.g. by fumi rm)", name)
 		}
 		return fmt.Errorf("socat exited unexpectedly with status %d", res.StatusCode)
 	case err := <-wait.Error:
