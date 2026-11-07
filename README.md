@@ -64,6 +64,34 @@ Forwarding 127.0.0.1:8090 -> web:80 on myapp_default via fumi-furui-ume (Ctrl+C 
 - Ctrl+C で止めると、コンテナは削除されます。
 - `HOST` には、そのネットワークにいるコンテナが答える名前（Compose のサービス名、コンテナ名、エイリアス）を指定します。見つからない場合は、使える名前を表示してエラーにします。IP アドレスやドットを含む名前は、ネットワーク外の宛先として確認せずに通します。
 
+### `fumi ls` — fumi が起動したコンテナの一覧（エイリアス：`ps`）
+
+```sh
+fumi ls [--format table|json]
+```
+
+```console
+$ fumi ls
+NAME                 KIND      NETWORK         DETAIL                           STATUS
+fumi-shizuka-tsuki   shell     myapp_default   /home/me/myapp -> /work          Up 5 minutes
+fumi-kin-take        forward   myapp_default   127.0.0.1:8090 -> web:80         Up 2 minutes
+```
+
+別の端末で動かしている踏み台や転送を確認できます。ラベル `fumi.managed=true` が付いたコンテナだけを表示します。
+`KIND` は `shell`（`fumi run`）か `forward`（`fumi forward`）で、`DETAIL` には `/work` にマウントしたディレクトリや、転送の内容を表示します。
+
+### `fumi rm` — fumi が起動したコンテナを削除する
+
+```sh
+fumi rm NAME...
+fumi rm --all [--force]
+```
+
+- 名前を指定して削除します。名前は Tab で補完できます。`--all` を付けると、fumi が起動したコンテナをすべて削除します。
+- 動いているコンテナも止めて削除します。そのシェルに入っている人や、その転送を使っている人の接続は切れます。
+- `--all` のときは確認を出します。確認なしで消すには `--force` を付けます（端末がない環境では `--force` が必須です）。
+- fumi が起動したもの以外のコンテナは削除しません。
+
 ### `fumi networks` — ネットワーク一覧（エイリアス：`net`）
 
 ```sh
@@ -75,7 +103,7 @@ Docker が最初から用意している `bridge` / `host` / `none` は、`--all
 
 ### `fumi completion` — シェル補完
 
-`--network` を Tab で補完できます（いま存在するネットワーク名が候補になります）。
+`--network`（いま存在するネットワーク名）と、`fumi rm` のコンテナ名（fumi が起動したコンテナの名前）を Tab で補完できます。
 
 ```sh
 # bash（~/.bashrc に追記）
