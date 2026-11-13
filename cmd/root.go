@@ -20,13 +20,14 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "fumi",
 		Short: "Start throwaway bastion containers on Docker networks",
-		Long: `fumi (踏み) starts a throwaway "bastion" container on a Docker network and
-opens a shell in it, so you can reach services that publish no ports,
-such as a database started by Docker Compose.`,
+		Long: `fumi (踏み) reaches services on a Docker network that publish no ports, such
+as a database started by Docker Compose: it opens a shell in a throwaway
+"bastion" container on the network (fumi run), or forwards a local port to a
+service there (fumi forward). fumi ls and fumi rm manage those containers.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newRunCmd(), newForwardCmd(), newNetworksCmd())
+	root.AddCommand(newRunCmd(), newForwardCmd(), newLsCmd(), newRmCmd(), newNetworksCmd())
 	return root
 }
 
